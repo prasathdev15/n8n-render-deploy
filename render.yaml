@@ -1,15 +1,40 @@
 services:
-  - type: web
-    name: n8n
+  # Service 1: The n8n application itself, running as a Private Service.
+  # It has the persistent disk and does the actual work.
+  - type: pserv # 'pserv' stands for Private Service
+    name: n8n-app
     env: docker
-    plan: free 
+    plan: free
     image:
       url: docker.io/n8n/n8n:latest
-    envVars:
-      - key: EXECUTIONS_DATA_PRUNE
-        value: true
-      - key: N8N_SECURE_COOKIE
-        value: false
-    disk: 
+    disk:
       name: n8n-data
       mountPath: /home/node/.n8n
+      sizeGB: 1
+    envVars:
+      # This tells n8n its public address for webhooks to work correctly.
+      - key: WEBHOOK_URL
+        fromService:
+          type: web
+          name: n8n-proxy # The name of our proxy service below
+          property: url
+
+  # Service 2: The public-facing Web Service that acts as a proxy.
+  # It has no disk. It just forwards requests to n8n-app.
+  - type: web
+    name: n8n-proxy
+    plan: free
+    env: docker
+    image:
+      # We use a simple nginx image, a standard web server.
+      url: docker.io/nginx:alpine
+    # This is the magic part: All incoming traffic (source: /) is
+    # rewritten and forwarded to our internal n8n-app service on port 5678.
+    rewrites:
+      - source: /.*
+        destination: http://n8n-app:5678
+
+# The disk is defined once at the top level for the blueprint.
+disks:
+  - name: n8n-data
+    sizeGB: 1
